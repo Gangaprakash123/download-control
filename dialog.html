@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Download not allowed</title>
+  <script src="https://extensions.tableauusercontent.com/resources/tableau.extensions.1.latest.min.js"></script>
+  <style>
+    body { margin:0; padding:18px 20px; font-family:"Segoe UI", Arial, sans-serif; font-size:14px; color:#1f2a37; background:#fff; border-top:5px solid #c62828; }
+    h2 { margin:0 0 8px; font-size:17px; color:#c62828; }
+    p { margin:0 0 6px; line-height:1.5; }
+    .actions { margin-top:16px; text-align:right; }
+    button { padding:7px 22px; border:0; border-radius:4px; background:#1f6feb; color:#fff; font:inherit; font-weight:600; cursor:pointer; }
+    button:focus-visible { outline:2px solid #1f6feb; outline-offset:2px; }
+  </style>
+</head>
+<body>
+  <h2 id="title">Download not allowed</h2>
+  <div id="lines"></div>
+  <div class="actions"><button id="ok">OK</button></div>
+
+<script>
+  tableau.extensions.initializeDialogAsync().then(payload => {
+    let info = {};
+    try { info = JSON.parse(payload); } catch (e) {}
+    if (info.title) document.getElementById("title").textContent = info.title;
+    const box = document.getElementById("lines");
+    (info.lines || ["Please contact your admin."]).forEach(t => {
+      const p = document.createElement("p"); p.textContent = t; box.appendChild(p);
+    });
+    document.getElementById("ok").focus();
+  });
+  document.getElementById("ok").addEventListener("click", () => tableau.extensions.ui.closeDialog("ok"));
+</script>
+</body>
+</html>

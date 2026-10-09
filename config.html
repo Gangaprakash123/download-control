@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Download Control Settings</title>
+  <script src="https://extensions.tableauusercontent.com/resources/tableau.extensions.1.latest.min.js"></script>
+  <style>
+    :root { --ink:#1f2a37; --muted:#5b6675; --line:#d5dbe3; --brand:#1f6feb; --brand-bg:#eef4ff; --err:#c62828; }
+    * { box-sizing:border-box; }
+    body { margin:0; padding:16px 20px; font-family:"Segoe UI", Arial, sans-serif; font-size:13px; color:var(--ink); background:#fff; }
+    h1 { margin:0 0 2px; font-size:17px; }
+    .step { color:var(--muted); font-size:12px; margin:0 0 4px; }
+    .hint { color:var(--muted); margin:0 0 14px; }
+    .choice { display:flex; gap:10px; align-items:flex-start; border:1px solid var(--line); border-radius:6px; padding:12px; margin-bottom:8px; cursor:pointer; }
+    .choice:has(input:checked) { border-color:var(--brand); background:var(--brand-bg); }
+    .choice input { margin-top:3px; }
+    .choice b { display:block; margin-bottom:2px; }
+    .choice span { color:var(--muted); }
+    fieldset { border:1px solid var(--line); border-radius:6px; padding:10px 12px 12px; margin:0 0 12px; }
+    legend { font-weight:600; padding:0 4px; }
+    label { display:inline-flex; align-items:center; gap:4px; }
+    select, input[type=time], input[type=number] { padding:5px 7px; border:1px solid var(--line); border-radius:4px; font:inherit; }
+    select { width:100%; }
+    .win { display:flex; gap:8px; align-items:center; margin-bottom:6px; flex-wrap:wrap; }
+    .days { display:flex; flex-wrap:wrap; gap:10px; }
+    button { padding:6px 14px; border:0; border-radius:4px; font:inherit; font-weight:600; cursor:pointer; }
+    .primary { background:var(--brand); color:#fff; }
+    .ghost { background:#eef2f7; color:var(--ink); }
+    .remove { background:none; color:var(--err); padding:4px 8px; }
+    button:focus-visible, input:focus-visible, select:focus-visible { outline:2px solid var(--brand); outline-offset:2px; }
+    #err { color:var(--err); min-height:1.2em; margin:4px 0 8px; }
+    .actions { display:flex; justify-content:space-between; gap:8px; }
+    .actions .right { display:flex; gap:8px; margin-left:auto; }
+    [hidden] { display:none !important; }
+  </style>
+</head>
+<body>
+
+  <!-- STEP 1: choose restriction type -->
+  <section id="step1">
+    <p class="step">Step 1 of 2</p>
+    <h1>What do you want to restrict?</h1>
+    <p class="hint">Choose how downloads should be controlled on this dashboard.</p>
+
+    <label class="choice"><input type="radio" name="mode" value="rows">
+      <div><b>Row limit only</b><span>Block downloads when the filtered data has more than a set number of rows.</span></div></label>
+    <label class="choice"><input type="radio" name="mode" value="time">
+      <div><b>Peak hours only</b><span>Block all downloads during set times of the day.</span></div></label>
+    <label class="choice"><input type="radio" name="mode" value="both">
+      <div><b>Both row limit and peak hours</b><span>Block during peak hours, and outside peak hours allow only up to the row limit.</span></div></label>
+
+    <div id="err1" role="alert" style="color:var(--err);min-height:1.2em;margin:4px 0 8px"></div>
+    <div class="actions">
+      <div class="right">
+        <button type="button" class="ghost" id="cancel1">Cancel</button>
+        <button type="button" class="primary" id="next">Next</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- STEP 2: details -->
+  <section id="step2" hidden>
+    <p class="step">Step 2 of 2</p>
+    <h1 id="step2Title">Settings</h1>
+    <p class="hint">These settings are saved in this workbook, for this dashboard only.</p>
+
+    <fieldset id="rowsBox">
+      <legend>Row limit</legend>
+      <label>Maximum <input type="number" id="maxRows" min="1" step="1" style="width:110px"> rows per download</label>
+    </fieldset>
+
+    <div id="timeBox">
+      <fieldset>
+        <legend>Time zone</legend>
+        <select id="tz" aria-label="Time zone"></select>
+      </fieldset>
+      <fieldset>
+        <legend>Peak hours (downloads blocked)</legend>
+        <div id="windows"></div>
+        <button type="button" class="ghost" id="addWin">+ Add time window</button>
+      </fieldset>
+      <fieldset>
+        <legend>Days peak hours apply</legend>
+        <div class="days" id="days"></div>
+      </fieldset>
+    </div>
+
+    <div id="err" role="alert"></div>
+    <div class="actions">
+      <button type="button" class="ghost" id="back">← Back</button>
+      <div class="right">
+        <button type="button" class="ghost" id="cancel2">Cancel</button>
+        <button type="button" class="primary" id="save">Save</button>
+      </div>
+    </div>
+  </section>
+
+<script>
+  const DAY_NAMES = ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+  const DEFAULTS = { mode:"", maxRows:100, timeZone:"Asia/Kolkata", windows:[{start:"10:00", end:"18:00"}], days:[1,2,3,4,5] };
+  const TITLES = { rows:"Row limit", time:"Peak hours", both:"Row limit and peak hours" };
+
+  const $ = id => document.getElementById(id);
+  const winBox = $("windows");
+  let mode = "";
+
+  function fillTimeZones(selected) {
+    let zones = [];
+    try { zones = Intl.supportedValuesOf("timeZone"); } catch (e) {}
+    if (!zones.length) zones = ["Asia/Kolkata","UTC","Europe/London","America/New_York","America/Chicago","America/Los_Angeles","Asia/Dubai","Asia/Singapore","Australia/Sydney"];
+    if (!zones.includes(selected)) zones.unshift(selected);
+    zones.forEach(z => { const o = document.createElement("option"); o.value = o.textContent = z; $("tz").appendChild(o); });
+    $("tz").value = selected;
+  }
+
+  function addWindow(w) {
+    const row = document.createElement("div");
+    row.className = "win";
+    row.innerHTML = `<label>From <input type="time" class="s"></label>
+                     <label>To <input type="time" class="e"></label>
+                     <button type="button" class="remove" aria-label="Remove this window">Remove</button>`;
+    row.querySelector(".s").value = w.start;
+    row.querySelector(".e").value = w.end;
+    row.querySelector(".remove").onclick = () => row.remove();
+    winBox.appendChild(row);
+  }
+
+  function fillDays(selected) {
+    DAY_NAMES.forEach((n, i) => {
+      const l = document.createElement("label");
+      l.innerHTML = `<input type="checkbox" value="${i}"> ${n}`;
+      l.querySelector("input").checked = selected.includes(i);
+      $("days").appendChild(l);
+    });
+  }
+
+  function showStep2() {
+    $("step2Title").textContent = TITLES[mode];
+    $("rowsBox").hidden = !(mode === "rows" || mode === "both");
+    $("timeBox").hidden = !(mode === "time" || mode === "both");
+    $("err").textContent = "";
+    $("step1").hidden = true;
+    $("step2").hidden = false;
+  }
+
+  tableau.extensions.initializeDialogAsync().then(payload => {
+    let cfg = { ...DEFAULTS };
+    try { const p = JSON.parse(payload); if (p && p.mode) cfg = { ...DEFAULTS, ...p }; } catch (e) {}
+    if (cfg.mode) document.querySelector(`input[name=mode][value=${cfg.mode}]`).checked = true;
+    $("maxRows").value = cfg.maxRows || 100;
+    fillTimeZones(cfg.timeZone);
+    (cfg.windows && cfg.windows.length ? cfg.windows : DEFAULTS.windows).forEach(addWindow);
+    fillDays(cfg.days && cfg.days.length ? cfg.days : DEFAULTS.days);
+  });
+
+  const cancel = () => tableau.extensions.ui.closeDialog("cancel");
+  $("cancel1").onclick = cancel;
+  $("cancel2").onclick = cancel;
+  $("addWin").onclick = () => addWindow({ start:"", end:"" });
+  $("back").onclick = () => { $("step2").hidden = true; $("step1").hidden = false; };
+
+  $("next").onclick = () => {
+    const picked = document.querySelector("input[name=mode]:checked");
+    if (!picked) return $("err1").textContent = "Choose one option to continue.";
+    $("err1").textContent = "";
+    mode = picked.value;
+    showStep2();
+  };
+
+  $("save").onclick = async () => {
+    const err = $("err");
+    err.textContent = "";
+    const cfg = { mode };
+
+    if (mode === "rows" || mode === "both") {
+      const n = parseInt($("maxRows").value, 10);
+      if (!(n >= 1)) return err.textContent = "Enter a row limit of 1 or more.";
+      cfg.maxRows = n;
+    }
+
+    if (mode === "time" || mode === "both") {
+      const windows = [...winBox.querySelectorAll(".win")].map(r => ({
+        start: r.querySelector(".s").value, end: r.querySelector(".e").value }));
+      if (!windows.length) return err.textContent = "Add at least one time window.";
+      if (windows.some(w => !w.start || !w.end)) return err.textContent = "Fill in both times for every window.";
+      if (windows.some(w => w.start === w.end)) return err.textContent = "Start and end time can't be the same.";
+      const days = [...document.querySelectorAll("#days input:checked")].map(c => Number(c.value));
+      if (!days.length) return err.textContent = "Select at least one day.";
+      cfg.timeZone = $("tz").value;
+      cfg.windows = windows;
+      cfg.days = days;
+    }
+
+    try {
+      tableau.extensions.settings.set("downloadControl", JSON.stringify(cfg));
+      await tableau.extensions.settings.saveAsync();
+      tableau.extensions.ui.closeDialog("saved");
+    } catch (e) {
+      err.textContent = "Could not save settings: " + (e && e.message ? e.message : e);
+    }
+  };
+</script>
+</body>
+</html>
